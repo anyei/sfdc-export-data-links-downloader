@@ -1,9 +1,18 @@
 # sfdc-export-data-links-downloader
 When big orgs have a lot of data to export, you can rely on this tool to automatically download all the links provided by data export page from salesforce.
 
+### Usage
+
+Just execute the program with dotnet as follow, make sure the configuration file appsettings.json has the right values:
+
+```bash
+$ dotnet sfdc-export-data-links-downloader.dll
+```
+
 ### Configuration
 
 * **baseUrl** The instance url of your salesforce org.
+* **isSandbox** If the credentials are for sandbox login.
 * **username** The salesforce user name to use.
 * **pass** The password for the user.
 * **dataExportPagePath** is the endpoint for the export page, default value is "/ui/setup/export/DataExportPage/d" unless salesforce changes that
@@ -12,3 +21,10 @@ When big orgs have a lot of data to export, you can rely on this tool to automat
 * **downloadFolder** The folder where the files will be copied finally.
 * **tempFolder** The temporal folder while the files are bieng downloaded they are put here.
 * **reportDownloadDelay** The refresh rate of the console screen. This an integer number in seconds.
+
+
+Every config parameter is located in the appsettings.json file. They can be overriden when executing the program by passing the name of the parameter, all in lower case, with the "--" prefix.
+
+```bash
+$ dotnet sfdc-export-data-links-downloader.dll --username anyei@anyei.com --pass mypass --maxparallel 10 -- startfromfilenumber 2000
+```
