@@ -16,6 +16,7 @@ namespace SalesforceBackupFilesDownloader
     class Program
     {
         static IConfiguration config;
+        static Dictionary<string, string> argumentsMap;
         static int Main(string[] args)
         {
             DateTime startTime = DateTime.Now;
@@ -25,16 +26,18 @@ namespace SalesforceBackupFilesDownloader
             config = new ConfigurationBuilder()
                .AddJsonFile("appsettings.json", true, true)
                .Build();
+            argumentsMap = ParseArguments(args);
 
-            string baseUrl = config["baseUrl"];
-            string maxParallel = config["MaxParallel"];
-            string startFromNumber = config["startFromFileNumber"];
-            string downloadFolder = config["downloadFolder"];
-            string reportDelay = config["reportDownloadDelay"];
-            string tempFolder = config["tempFolder"];
-            string username = config["username"];
-            string pass = config["pass"];
-            string exportPage = config["dataExportPagePath"];
+            string baseUrl = GetArgumentOrDefault("--baseurl", config["baseUrl"]);
+            string maxParallel = GetArgumentOrDefault("--maxparallel", config["MaxParallel"]);
+            string startFromNumber = GetArgumentOrDefault("--startfromfilenumber", config["startFromFileNumber"]);
+            string downloadFolder = GetArgumentOrDefault("--downloadfolder", config["downloadFolder"]);
+            string reportDelay = GetArgumentOrDefault("--reportdownloaddelay", config["reportDownloadDelay"]);
+            string tempFolder = GetArgumentOrDefault("--tempfolder", config["tempFolder"]);
+            string username = GetArgumentOrDefault("--username", config["username"]);
+            string pass = GetArgumentOrDefault("--pass", config["pass"]);
+            string exportPage = GetArgumentOrDefault("--dataexportpagepath", config["dataExportPagePath"]);
+            string isSandbox = GetArgumentOrDefault("--issandbox", config["IsSandbox"]);
 
 
             int numberFrom = 0;
@@ -46,6 +49,9 @@ namespace SalesforceBackupFilesDownloader
             int reportD = 0;
             if (!int.TryParse(reportDelay, out reportD) && reportD > 0) reportD = 6;
             reportD = reportD * 1000;
+
+            bool isSandBox = false;
+            bool.TryParse(isSandbox, out isSandBox);
 
             if (string.IsNullOrEmpty(pass)) throw new ArgumentException("No password found");
             if (string.IsNullOrEmpty(exportPage)) throw new ArgumentException("No data export page path found");
@@ -61,7 +67,7 @@ namespace SalesforceBackupFilesDownloader
                 {
                     Username = username,
                     Password = pass,
-                    IsSandbox = false
+                    IsSandbox = isSandBox
                 };
 
                 using (SalesforceClient client = new SalesforceClient(config))
@@ -203,7 +209,7 @@ namespace SalesforceBackupFilesDownloader
                 }
                 i++;
             }
-            if (result.Count > 0) Console.WriteLine($"File parsed successfully, total items to download {result.Count}");
+            if (result.Count > 0) Console.WriteLine($"parsing html successfully, total items to download {result.Count}");
 
             return result;
         }
@@ -267,6 +273,39 @@ namespace SalesforceBackupFilesDownloader
                 }
             }
 
+        }
+
+        /// <summary>
+        /// Tries to get an inputed argument, if does not exists returns a default value
+        /// </summary>
+        /// <param name="argumentToGet"></param>
+        /// <param name="defaultValue"></param>
+        /// <returns></returns>
+        static string GetArgumentOrDefault(string argumentToGet, string defaultValue)
+        {
+            return !argumentsMap.ContainsKey(argumentToGet) ? defaultValue : argumentsMap[argumentToGet];
+        }
+
+        /// <summary>
+        /// Maps input arguments (thru command line) into a dictionary.
+        /// </summary>
+        /// <param name="args"></param>
+        /// <returns></returns>
+        static System.Collections.Generic.Dictionary<string, string> ParseArguments(string[] args)
+        {
+            System.Collections.Generic.Dictionary<string, string> arguments = new System.Collections.Generic.Dictionary<string, string>();
+            string key = null;
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (i == 0) { key = args[i].ToLower(); continue; }
+                if (i != 0 && i % 2 == 0)
+                {
+                    key = args[i].ToLower();
+                }
+                else
+                    arguments[key] = args[i];
+            }
+            return arguments;
         }
 
     }
