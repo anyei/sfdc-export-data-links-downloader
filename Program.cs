@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using Alba.CsConsoleFormat;
+using Microsoft.Extensions.Configuration;
 using SalesforceMagic;
 using SalesforceMagic.Configuration;
 using System;
@@ -10,6 +11,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using System.Xml;
+using static System.ConsoleColor;
 
 namespace SalesforceBackupFilesDownloader
 {
@@ -17,6 +19,7 @@ namespace SalesforceBackupFilesDownloader
     {
         static IConfiguration config;
         static Dictionary<string, string> argumentsMap;
+
         static int Main(string[] args)
         {
             DateTime startTime = DateTime.Now;
@@ -38,6 +41,7 @@ namespace SalesforceBackupFilesDownloader
             string pass = GetArgumentOrDefault("--pass", config["pass"]);
             string exportPage = GetArgumentOrDefault("--dataexportpagepath", config["dataExportPagePath"]);
             string isSandbox = GetArgumentOrDefault("--issandbox", config["IsSandbox"]);
+            string contentFilePath = GetArgumentOrDefault("--tablecontentfile", config["tableContentFile"]);
 
 
             int numberFrom = 0;
@@ -58,6 +62,7 @@ namespace SalesforceBackupFilesDownloader
             if (string.IsNullOrEmpty(username)) throw new ArgumentException("No username found");
             if (string.IsNullOrEmpty(baseUrl)) throw new ArgumentException("No base url");
             if (string.IsNullOrEmpty(downloadFolder)) throw new ArgumentException("Please specify download folder.");
+            if (!string.IsNullOrEmpty(contentFilePath) && !File.Exists(contentFilePath)) throw new ArgumentException("No tablecontentfile found");
 
             string sessionId;
             Organization org;
@@ -93,16 +98,19 @@ namespace SalesforceBackupFilesDownloader
 
             if (!Directory.Exists(downloadFolder)) Directory.CreateDirectory(downloadFolder);
             if (!Directory.Exists(tempFolder)) Directory.CreateDirectory(tempFolder);
-
-            string fileContent = _httpClient.GetAsync(exportPage).Result.Content.ReadAsStringAsync().Result;
+            List<DownloadBackupFileReportItem> downloadTaskReport = new List<DownloadBackupFileReportItem>();
+            Console.CursorVisible = false;
+            string fileContent = File.Exists(contentFilePath) ? File.ReadAllText(contentFilePath) : _httpClient.GetAsync(exportPage).Result.Content.ReadAsStringAsync().Result;
             try
             {
 
                 //reads from the file, the file names must be splitted by semi colon;
-                List<string> listOfIds = readXmlTable(fileContent, numberFrom);
+                List<string> listOfIds = readXmlTable(fileContent, numberFrom, File.Exists(contentFilePath));
                 List<Task> downloadTasks = new List<Task>();
-                List<DownloadBackupFileReportItem> downloadTaskReport = new List<DownloadBackupFileReportItem>();
-                bool lastBatchProcessed = false;
+                int lastIndexBatchProcessed = 0;
+                int zeroToMaxParallel = 1;
+
+                Console.WriteLine("Downloading...");
                 //tries to download the files in parallel.. if one is completed it will try to  continue to the next one.
                 for (int i = 0; i < listOfIds.Count; i++)
                 {
@@ -114,11 +122,10 @@ namespace SalesforceBackupFilesDownloader
                     try
                     {
                         string fname = furl.Split('&')[0].Split('=')[1];
-                        Console.WriteLine($"Downloading {fname}");
 
                         reportItem.response = _httpClient.GetAsync($"{furl}", HttpCompletionOption.ResponseHeadersRead);
-                        reportItem.fileName = fname;
-                        reportItem.ConsoleCursorTop = Console.CursorTop;
+                        reportItem.fileName = i.ToString() + fname;
+                        reportItem.ConsoleCursorTop = Console.CursorTop+ zeroToMaxParallel;
                         reportItem.taskId = i.ToString() + fname;
 
                         //sending the task to the babckground
@@ -128,7 +135,7 @@ namespace SalesforceBackupFilesDownloader
                         //if we have the specified number of downloads already started
                         //or is the very last item we are processing
                         //then wait for all of them to finish
-                        if ((downloadTasks.Count % mparallel) == 0 || i == (listOfIds.Count - 1))
+                        if ( (i > 0 && (downloadTasks.Count % mparallel) == 0) || i == (listOfIds.Count - 1))
                         {
                             Task.WaitAll(downloadTasks.ToArray());
 
@@ -138,12 +145,12 @@ namespace SalesforceBackupFilesDownloader
 
                             //cleaning the console.
                             Console.Clear();
-
-                            //if no error happened
-                            //this line will set the variable to true
-                            //else it means we still have some pending tasks to process
-                            lastBatchProcessed = true;
+                            Console.WriteLine("Downloading...");
+                            lastIndexBatchProcessed = i;
+                            zeroToMaxParallel = 0;
+                            System.Threading.Thread.Sleep(reportD);
                         }
+                        zeroToMaxParallel++;
 
 
                     }
@@ -154,14 +161,16 @@ namespace SalesforceBackupFilesDownloader
                         Console.Write(err.StackTrace);
                     }
 
-                    //if there was a problem adding the last 
-                    if (lastBatchProcessed != true)
-                    {
-                        //let's wait a litlte bit to make sure all the tasks completed
-                        Task.WaitAll(downloadTasks.ToArray());
-                        downloadTasks.Clear();
-                    }
+                }
 
+
+                //if there was a problem adding the last 
+                if (lastIndexBatchProcessed == (listOfIds.Count - 1) != true)
+                {
+                    //let's wait a litlte bit to make sure all the tasks completed
+                    Task.WaitAll(downloadTasks.ToArray());
+                    downloadTasks.Clear();
+                    System.Threading.Thread.Sleep(reportD);
                 }
             }
             catch (Exception err)
@@ -172,7 +181,7 @@ namespace SalesforceBackupFilesDownloader
                 return 1;
             }
             DateTime endTime = DateTime.Now;
-            Console.WriteLine($"Finished at {endTime}, it took {endTime - startTime} to finish, if you want to close just press a key..");
+            PrintReport(downloadTaskReport, endTime - startTime, username, isSandBox);
             Console.ReadKey();
             return 0;
         }
@@ -183,15 +192,19 @@ namespace SalesforceBackupFilesDownloader
         /// </summary>
         /// <param name="startFrom">You can specificy the starting link to download, NON zero based</param>
         /// <returns></returns>
-        static List<string> readXmlTable(string fileContent, int startFrom)
+        static List<string> readXmlTable(string fileContent, int startFrom, bool rawTable)
         {
             List<string> result = new List<string>();
             XmlDocument doc = new XmlDocument();
             string xmlHeader = "<?xml version=\"1.0\" encoding=\"utf-8\"?>";
-            int? startTable = fileContent?.IndexOf("<table class=\"list\"");
-            int totalLength = (fileContent?.LastIndexOf("</table>") - startTable).Value;
-            string targetTable = fileContent?.Substring(startTable.Value, totalLength);
-            targetTable = targetTable.Substring(0, targetTable.IndexOf("</table>")) + "</table>";
+            string targetTable = fileContent;
+            if (!rawTable)
+            {
+                int? startTable = fileContent?.IndexOf("<table class=\"list\"");
+                int totalLength = (fileContent?.LastIndexOf("</table>") - startTable).Value;
+                targetTable = fileContent?.Substring(startTable.Value, totalLength);
+                targetTable = targetTable.Substring(0, targetTable.IndexOf("</table>")) + "</table>";
+            }
             doc.Load(new MemoryStream(Encoding.UTF8.GetBytes(xmlHeader + targetTable)));
             XmlNode root = doc.DocumentElement;
 
@@ -213,6 +226,15 @@ namespace SalesforceBackupFilesDownloader
 
             return result;
         }
+       
+        /// <summary>
+        /// the download operation
+        /// </summary>
+        /// <param name="downloadTask"></param>
+        /// <param name="tempFolder"></param>
+        /// <param name="targetFolder"></param>
+        /// <param name="reportDelay"></param>
+        /// <returns></returns>
         static async Task downloadFile(DownloadBackupFileReportItem downloadTask, string tempFolder, string targetFolder, int reportDelay)
         {
             using (HttpResponseMessage response = await downloadTask.response)
@@ -306,6 +328,47 @@ namespace SalesforceBackupFilesDownloader
                     arguments[key] = args[i];
             }
             return arguments;
+        }
+
+        /// <summary>
+        /// pretty table reporting
+        /// </summary>
+        /// <param name="items"></param>
+        /// <param name="totalTime"></param>
+        /// <param name="username"></param>
+        /// <param name="sandbox"></param>
+        static void PrintReport(List<DownloadBackupFileReportItem> items, TimeSpan totalTime, string username, bool sandbox)
+        {
+            var headerThickness = new LineThickness(LineWidth.Double, LineWidth.Single);
+            var noneHorizontal = new LineThickness(LineWidth.None, LineWidth.None);
+
+            var doc = new Document(
+                new Span("Total Time To Complete") { Color = Yellow },totalTime, "\n",
+                new Span("User Name: ") { Color = Yellow }, username, "\n",
+                new Span("Sandbox: ") { Color = Yellow }, sandbox, "\n",
+                new Span("Total Files: ") { Color = Yellow }, items.Count, "\n",
+                new Span("Total Downloaded: ") { Color = Yellow }, items.Count(f=>f.Completed), "\n",
+                new Span("Total Failed: ") { Color = Yellow }, items.Count(f=>f.Completed == false), "\n",
+                new Span("Total Copied Download Folder: ") { Color = Yellow }, items.Count(f=>f.fileCopied), "\n",
+                new Grid
+                {
+                    Color = Gray,
+                    Columns = { GridLength.Auto, GridLength.Star(1), GridLength.Auto },
+                    Children = {
+            new Cell("File Name") { Stroke = headerThickness },
+            new Cell("Status") { Stroke = headerThickness },
+            new Cell("In Download Folder") { Stroke = headerThickness },
+            items.Select(item => new[] {
+                new Cell(item.fileName){Stroke =noneHorizontal } ,
+                new Cell(item.Completed ? "Downloaded" : "Failed"){Stroke =noneHorizontal } ,
+                new Cell(item.fileCopied ? "Yes":"No"){Stroke =noneHorizontal } ,
+            })
+                    }
+                }
+            );
+
+            ConsoleRenderer.RenderDocument(doc);
+            
         }
 
     }

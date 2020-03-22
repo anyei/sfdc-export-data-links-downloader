@@ -21,9 +21,11 @@ namespace SalesforceBackupFilesDownloader
         }
         public void ToDisplayProgress()
         {
+            lock (locker)
+            {
                 Console.SetCursorPosition(0, ConsoleCursorTop);
                 Console.WriteLine($"Download {fileName} {(fileCopied ? "Copied" : "Temp")} { (completed ? "Completed" : "In Progress") } downloaded {(DowloadedBytes / 1024)}KB  {TimeProgress}");
-            
+            }
         }
         public void SetComplete() { completed = true; endTime = DateTime.Now; }
         public Task<HttpResponseMessage> response { get; set; }
