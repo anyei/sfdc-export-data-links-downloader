@@ -99,7 +99,7 @@ namespace SalesforceBackupFilesDownloader
             if (!Directory.Exists(downloadFolder)) Directory.CreateDirectory(downloadFolder);
             if (!Directory.Exists(tempFolder)) Directory.CreateDirectory(tempFolder);
             List<DownloadBackupFileReportItem> downloadTaskReport = new List<DownloadBackupFileReportItem>();
-            Console.CursorVisible = false;
+            try { Console.CursorVisible = false; } catch { }
             string fileContent = File.Exists(contentFilePath) ? File.ReadAllText(contentFilePath) : _httpClient.GetAsync(exportPage).Result.Content.ReadAsStringAsync().Result;
             try
             {
