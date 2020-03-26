@@ -21,7 +21,7 @@ $ dotnet sfdc-export-data-links-downloader.dll
 * **downloadFolder** The folder where the files will be copied finally.
 * **tempFolder** The temporal folder while the files are bieng downloaded they are put here.
 * **reportDownloadDelay** The refresh rate of the console screen. This an integer number in seconds.
-
+* **tableContentFile** If you have an html table previously downloaded from the DataExport page from salesforce setup, you may use it by putting its content in a file. This is the file path.
 
 Every config parameter is located in the appsettings.json file. They can be overriden when executing the program by passing the name of the parameter, all in lower case, with the "--" prefix.
 
