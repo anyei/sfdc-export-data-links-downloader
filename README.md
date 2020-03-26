@@ -8,6 +8,8 @@ Just execute the program with dotnet as follow, make sure the configuration file
 ```bash
 $ dotnet sfdc-export-data-links-downloader.dll
 ```
+### Demo
+![Demo ](https://raw.githubusercontent.com/anyei/sfdc-export-data-links-downloader/master/bin/export-demo.gif)
 
 ### Configuration
 
